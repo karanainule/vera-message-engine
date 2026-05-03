@@ -1,75 +1,228 @@
-# Vera Message Engine — Submission README
+# Vera Message Engine 🚀
 
-**Team**: Karan Ainule  
-**Model**: claude-sonnet-4-5-20251001 (temperature=0 for determinism)  
-**Version**: 1.0.0
+**Team**: Karan Ainule
+**Model**: Google Gemini (`gemini-2.0-flash`, temperature=0 for determinism)
+**Version**: 2.0.0
 
 ---
 
-## Approach
+## 🧠 Overview
 
-### Architecture
+Vera Message Engine is an AI-powered backend system that generates **high-conversion, context-aware messages** for merchants based on real-time triggers.
+
+The system combines:
+
+* Rule-based decision logic
+* Structured signal extraction
+* Gemini LLM generation
+* Multi-layer fallback guarantees
+
+👉 **Key Guarantee**: `/v1/tick` never returns an empty response.
+
+---
+
+## 🏗 Architecture
+
 ```
-ContextStore (in-memory, idempotent versioning)
+ContextStore (versioned, in-memory)
     ↓
-DecisionEngine (trigger ranking, per-tick action selection)
+DecisionEngine (trigger mapping + action selection)
     ↓
-SignalExtractor (pulls verifiable facts: CTR gaps, counts, dates, citations)
+SignalExtractor (CTR gap, lapsed users, offers, etc.)
     ↓
-MessageGenerator (trigger-kind router → LLM at temperature=0 → CTA validator)
+MessageGenerator (Gemini + rule-based fallback)
     ↓
-ReplyHandler (auto-reply detection, intent transitions, graceful exit)
+ReplyHandler (intent detection + conversation flow)
 ```
 
-### Core Design Decisions
+---
 
-**1. Trigger-kind routing over generic prompts**  
-Each trigger kind (`research_digest`, `perf_dip`, `recall_due`, etc.) maps to a distinct prompt instruction. This ensures category voice, compulsion lever, and CTA shape are all tuned to the specific situation — not just "compose a message about X."
+## ⚙️ Core Design Decisions
 
-**2. Signal extraction before prompting**  
-Before calling the LLM, `SignalExtractor` pulls structured facts: CTR gap vs peer median, exact customer counts, active offers, review themes, seasonal context. These are injected as a grounded "facts block" the model must use. This prevents hallucination and guarantees specificity.
+### 1. Trigger → Merchant Mapping
 
-**3. Determinism via temperature=0**  
-Same context version → same output every time. Context is stored by `(scope, context_id, version)` — idempotent, atomic updates.
-
-**4. Multi-turn conversation handling**  
-`ReplyHandler` maintains per-conversation state with: auto-reply pattern detection (verbatim match + repetition), accept-intent detection (30+ Hindi/English signals), graceful exit on 3rd unanswered nudge or explicit rejection, and off-topic redirect (politely stays on mission).
-
-**5. Adaptation to injected context**  
-When `/v1/context` receives a higher version (new digest items, updated perf), the store atomically replaces. Next `/v1/tick` will use the fresh context automatically — the generator always reads from store, never caches.
+* Event strings like `"perf_dip"` are automatically mapped to the **latest merchant context**
+* No need to pass full objects in `/tick`
+* Ensures simplicity + robustness
 
 ---
 
-## What tradeoffs were made
+### 2. Deterministic AI Output
 
-- **In-memory store**: No Redis/SQLite — fast, simple, sufficient for 60-min test window
-- **Single LLM call per compose**: No chained calls. Structured facts block + specific instruction = one good call rather than two mediocre ones
-- **Suppression at DecisionEngine level**: Once a suppression key is sent, it won't fire again in the same session. Conservative but prevents spam penalties
-- **20-action tick cap respected**: Engine stops at 20 actions per tick even if more triggers are available
+* Gemini runs at **temperature = 0**
+* Same input → same output (important for evaluation)
 
 ---
 
-## What additional context would have helped most
+### 3. Structured Message Framework
 
-1. **Real seasonal beat dates** — knowing which specific Indian festivals fall in the next 30 days would sharpen festival trigger messages
-2. **Actual peer stats per city** — the dataset has Delhi-scoped peer CTR; city-specific peer stats for Mumbai, Bangalore, Hyderabad, etc. would improve comparative framing
-3. **Merchant's actual WhatsApp conversation history** — the seed data has 1-2 turns; more history would improve reply continuity
+Every message follows:
+
+```
+[Problem + Contrast]
+→ [Quantified Loss]
+→ [Recovery Opportunity]
+→ [Time Anchor]
+→ [Reply YES CTA]
+```
+
+Example:
+
+> “Your CTR is 2% vs ~5% nearby clinics — that’s ~60 missed patients every month. You already have 120 lapsed patients ready to convert. Activate your ₹299 checkup today and recover them fast. Reply YES”
 
 ---
 
-## Deployment
+### 4. Multi-layer Fallback System (CRITICAL)
+
+The system guarantees output using 3 layers:
+
+1. Gemini LLM
+2. Rule-based fallback (`compose_fallback`)
+3. Emergency fallback (hardcoded safe message)
+
+👉 Even if API fails → system still responds
+
+---
+
+### 5. Context Versioning
+
+* Stored as `(scope, context_id, version)`
+* New versions overwrite atomically
+* Always uses latest data
+
+---
+
+## 🚫 Anti-Failure Guarantees
+
+* ❌ Never returns `{"actions": []}`
+* ❌ No dependency on LLM success
+* ❌ No hallucinated data (uses extracted signals)
+* ❌ No multiple CTAs
+
+---
+
+## 🔧 Tech Stack
+
+* Python
+* FastAPI
+* Google Gemini API (`google-genai`)
+* Python-dotenv
+
+---
+
+## 🚀 How to Run
+
+### 1. Install dependencies
 
 ```bash
 pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8080
 ```
 
-Environment: `ANTHROPIC_API_KEY` must be set.
+### 2. Setup environment
 
-## Endpoints
-- `GET /v1/healthz`
-- `GET /v1/metadata`
-- `POST /v1/context`
-- `POST /v1/tick`
-- `POST /v1/reply`
-- `POST /v1/teardown`
+Create `.env`:
+
+```env
+GEMINI_API_KEY=your_api_key_here
+```
+
+---
+
+### 3. Run server
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+```
+
+---
+
+### 4. Open Swagger UI
+
+```
+http://127.0.0.1:8000/docs
+```
+
+---
+
+## 📡 API Endpoints
+
+* `GET /v1/healthz` → health check
+* `GET /v1/metadata` → system info
+* `POST /v1/context` → push merchant/customer context
+* `POST /v1/tick` → generate actions (core logic)
+* `POST /v1/reply` → simulate conversation reply
+* `POST /v1/teardown` → reset state
+
+---
+
+## 🧪 Example Flow
+
+### 1. Load context
+
+```json
+{
+  "scope": "merchant",
+  "context_id": "m_001",
+  "version": 1,
+  "payload": { ... }
+}
+```
+
+---
+
+### 2. Trigger decision
+
+```json
+{
+  "now": "2026-05-03T10:05:00Z",
+  "events": ["perf_dip"]
+}
+```
+
+---
+
+### 3. Output
+
+```json
+{
+  "actions": [
+    {
+      "message": "Your CTR is 2% vs ~5% nearby clinics — that’s ~60 missed patients every month...",
+      "cta": "Reply YES"
+    }
+  ]
+}
+```
+
+---
+
+## 🎯 Key Strengths
+
+* Data-driven messaging (CTR, lapsed users, offers)
+* High engagement design (urgency + contrast + CTA)
+* Robust fallback system
+* Deterministic outputs
+* Clean API design
+
+---
+
+## 📈 Future Improvements
+
+* City-specific peer benchmarks
+* Multi-language personalization (Hindi/Marathi)
+* Persistent database (Redis/Postgres)
+* Advanced user segmentation
+
+---
+
+## 💬 Final Note
+
+This system is designed not just to work — but to **drive action**.
+
+👉 Every message is engineered for:
+
+* clarity
+* urgency
+* conversion
+
+---
