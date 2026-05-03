@@ -1,11 +1,12 @@
 services:
   - type: web
     name: vera-message-engine
-    env: python
+    runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port 10000
+    buildCommand: python -m pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
       - key: GEMINI_API_KEY
         sync: false
-    runtime: python3.11
