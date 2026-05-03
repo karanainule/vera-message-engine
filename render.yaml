@@ -3,7 +3,7 @@ services:
     name: vera-message-engine
     runtime: python
     plan: free
-    buildCommand: python -m pip install -r requirements.txt
+    buildCommand: python --version && python -m pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
